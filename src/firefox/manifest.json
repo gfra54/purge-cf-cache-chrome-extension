@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "CloudFlare Purge Plugin",
-  "short_name": "CloudFlare Purge",
-  "description": "This extension can purge the CloudFlare cache for the current page of your CloudFlare enabled website",
+  "name": "CloudFlare Advanced Purge Plugin",
+  "short_name": "CloudFlare Advanced Purge",
+  "description": "This extension can purge the CloudFlare cache for the current page, for a domain or for a tag of your CloudFlare enabled website",
   "version": "1.9.0",
   "options_ui": {
     "page": "options.html",
@@ -28,7 +28,7 @@
    ],
    "browser_specific_settings": {
     "gecko": {
-      "id": "{0a40b0aa-001b-41c9-a3d7-7f4c4fe77025}",
+      "id": "{eb712bb1-0338-5208-a7a3-0af8cb9f59a4}",
       "strict_min_version": "142.0",
       "data_collection_permissions": {
         "required": ["authenticationInfo"]
