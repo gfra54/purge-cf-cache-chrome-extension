@@ -295,6 +295,13 @@ class PopUp {
     async purgeTagClick(e) {
         e.preventDefault();
         const domain = await this.getCurrentDomain();
+        if (!domain) {
+            // Cache tags are scoped to a zone, and the zone comes from the current tab.
+            this.elements.status.classList.add('error');
+            this.utility.setStatusMessage(this.elements.status, 'OPEN A SITE FIRST', 5000);
+            return;
+        }
+
         this.showInputPrompt({
             message: `Cache tag(s) to purge on ${domain}:`,
             hint: 'Up to 30 tags, separated by commas. Tags are case sensitive.',
@@ -591,8 +598,8 @@ class PopUp {
             }
         };
 
-        this.elements.domainPromptYes.addEventListener('click', onOkAction, { signal });
-        this.elements.domainPromptNo.addEventListener('click', onCancelAction, { signal });
+        this.elements.inputPromptYes.addEventListener('click', onOkAction, { signal });
+        this.elements.inputPromptNo.addEventListener('click', onCancelAction, { signal });
         input.addEventListener('keydown', onKeyDown, { signal });
     }
 
