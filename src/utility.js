@@ -8288,6 +8288,25 @@ export default class Utility {
     }
 
     /**
+     * Escapes a value so it can be interpolated into an HTML string. Response
+     * headers and API responses are attacker controlled, and the extension pages
+     * run with access to the browser APIs and to the stored CloudFlare token.
+     * @param {*} value any value to render as text
+     */
+    escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    /**
      * Turns the raw blacklist text of the options page into a list of entries.
      * @param {*} value a newline or comma separated list of domains and cache tags
      */

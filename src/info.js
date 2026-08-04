@@ -178,10 +178,13 @@ export default class PurgeInfo {
 
                 if (this.stats.ray) {
                     this.elements.details.classList.add('active');
-                    this.elements.details.innerHTML = `Node location: ${this.stats.serverLocation}<br/>`;
-                    this.elements.details.innerHTML += `Ray: ${this.stats.ray}<br/>`;
-                    this.elements.details.innerHTML += `Status: <strong>${this.stats.status}</strong><br/>`;
-                    this.elements.details.innerHTML += `Cache control: ${this.stats.cacheControl}<br/>`;
+                    // Every value below comes from the response headers of the
+                    // visited site, so it is escaped before it reaches the DOM.
+                    const escape = this.utility.escapeHtml.bind(this.utility);
+                    this.elements.details.innerHTML = `Node location: ${escape(this.stats.serverLocation)}<br/>`
+                        + `Ray: ${escape(this.stats.ray)}<br/>`
+                        + `Status: <strong>${escape(this.stats.status)}</strong><br/>`
+                        + `Cache control: ${escape(this.stats.cacheControl)}<br/>`;
                 }
             }
         } catch (ex) {

@@ -117,13 +117,13 @@ class Options {
         `;
 
         for (const profile in profiles) {
-            const profileName = profile;
+            const profileName = this.utility.escapeHtml(profile);
             const profileToken = profiles[profile];
-            
+
             tableHtml += `
                 <tr>
                     <td>${profileName}</td>
-                    <td>${this.obfuscateToken(profileToken)}</td>
+                    <td>${this.utility.escapeHtml(this.obfuscateToken(profileToken))}</td>
                     <td>
                         <a href="#" class="profile-remove" data-item="${profileName}">remove</a>
                     </td>
@@ -284,19 +284,23 @@ class Options {
                     <th>Domain</th>
                 </tr>
         `;
+        // The zone details come straight from the CloudFlare API, so they are
+        // escaped rather than interpolated into the table as raw HTML.
         ownedProperties.forEach(zone => {
-            let registrar = zone.original_registrar ? zone.original_registrar : 'Cloudflare';
+            const registrar = this.utility.escapeHtml(zone.original_registrar ? zone.original_registrar : 'Cloudflare');
+            const zoneName = this.utility.escapeHtml(zone.name);
+            const zoneHref = encodeURIComponent(zone.name);
             propertiesListHtml += `
             <tr>
-                <td>${zone.id}</td>
+                <td>${this.utility.escapeHtml(zone.id)}</td>
                 <td>
-                    ${new Date(zone.created_on).toString()}
+                    ${this.utility.escapeHtml(new Date(zone.created_on).toString())}
                 </td>
                 <td>
                     ${registrar}
                 </td>
                 <td>
-                    <a href="https://${zone.name}" target="_blank">${zone.name}</a>
+                    <a href="https://${zoneHref}" target="_blank" rel="noopener noreferrer">${zoneName}</a>
                 </td>
             </tr>
             `;

@@ -63,7 +63,7 @@ class PopUp {
         this.hideElement(this.elements.infoBtn);
         this.hideElement(this.elements.profilesParent);
         this.showElement(this.elements.optionsButton);
-        this.elements.prompText.innerHTML = this.defaultPromptText;
+        this.elements.prompText.innerText = this.defaultPromptText;
         this.elements.purgeAllButton.addEventListener('click', this.purgeAllClick.bind(this));
         this.elements.purgeButton.addEventListener('click', this.purgeButtonClick.bind(this));
         this.elements.purgeDomainButton.addEventListener('click', this.purgeDomainClick.bind(this));
@@ -504,11 +504,11 @@ class PopUp {
             const interval = setInterval(() => {
                 if (countdown === 0) {
                     clearInterval(interval);
-                    countDownElement.innerHTML = '';
+                    countDownElement.innerText = '';
                     resolve(true);
                 } else {
                     countdown -= 1;
-                    countDownElement.innerHTML = `${message} ${countdown}`;
+                    countDownElement.innerText = `${message} ${countdown}`;
                 }
             }, 1000);
         });
@@ -523,9 +523,9 @@ class PopUp {
      */
     showPrompt(domain, yesAction, noAction, message) {
         if (message) {
-            this.elements.prompText.innerHTML = message;
+            this.elements.prompText.innerText = message;
         } else {
-            this.elements.prompText.innerHTML = this.defaultPromptText;
+            this.elements.prompText.innerText = this.defaultPromptText;
         }
 
         this.elements.promptElement.classList.add('active');
