@@ -29,6 +29,8 @@ class PopUp {
         this.elements = {
             purgeButton: document.querySelector('#purgeButton'),
             purgeAllButton: document.querySelector('#purgeAllButton'),
+            purgeDomainButton: document.querySelector('#purgeDomainButton'),
+            purgeTagButton: document.querySelector('#purgeTagButton'),
             devModeWrapper: document.querySelector('.dev-mode-wrapper'),
             optionsButton: document.querySelector('#optionsButton'),
             prompText: document.querySelector('#prompt-text'),
@@ -44,15 +46,18 @@ class PopUp {
             infoBtn: document.querySelector('#infoBtn'),
             selectProfiles: document.querySelector('#select-profiles'),
             profilesParent: document.querySelector('.profiles-parent'),
+            inputPrompt: document.querySelector('#input-lightbox'),
+            inputPromptText: document.querySelector('#input-prompt-text'),
+            inputPromptHint: document.querySelector('#input-prompt-hint'),
+            inputPromptValue: document.querySelector('#input-prompt-value'),
+            inputPromptYes: document.querySelector('#inputPromptYes'),
+            inputPromptNo: document.querySelector('#inputPromptNo'),
         };
-
-        const isFirefox = typeof InstallTrigger !== 'undefined';
-        if (isFirefox) {
-            chrome = browser;
-        }
 
         this.hideElement(this.elements.purgeButton);
         this.hideElement(this.elements.purgeAllButton);
+        this.hideElement(this.elements.purgeDomainButton);
+        this.hideElement(this.elements.purgeTagButton);
         this.hideElement(this.elements.devModeWrapper);
         this.hideElement(this.elements.refreshCheckbox);
         this.hideElement(this.elements.infoBtn);
@@ -61,6 +66,8 @@ class PopUp {
         this.elements.prompText.innerHTML = this.defaultPromptText;
         this.elements.purgeAllButton.addEventListener('click', this.purgeAllClick.bind(this));
         this.elements.purgeButton.addEventListener('click', this.purgeButtonClick.bind(this));
+        this.elements.purgeDomainButton.addEventListener('click', this.purgeDomainClick.bind(this));
+        this.elements.purgeTagButton.addEventListener('click', this.purgeTagClick.bind(this));
         this.elements.optionsButton.addEventListener('click', this.optionsButtonClick.bind(this));
         this.elements.devMode.addEventListener('change', this.toggleDeveloperMode.bind(this));
         this.elements.selectProfiles.addEventListener('change', this.changeProfile.bind(this));
@@ -85,6 +92,7 @@ class PopUp {
                 hidePurgeAll: false,
                 showDevMode: false,
                 profiles: null,
+                blacklist: null,
             });
             this.setup(settings);
             return;
@@ -99,6 +107,7 @@ class PopUp {
             hidePurgeAll: false,
             showDevMode: false,
             profiles: null,
+            blacklist: null,
         }, (items) => {
             this.setup(items);
         });
@@ -122,6 +131,8 @@ class PopUp {
         if (this.settingsSet) {
             this.showElement(this.elements.refreshCheckbox);
             this.showElement(this.elements.purgeButton);
+            this.showElement(this.elements.purgeDomainButton);
+            this.showElement(this.elements.purgeTagButton);
             this.showElement(this.elements.infoBtn);
             this.hideElement(this.elements.optionsButton);
 
@@ -168,6 +179,10 @@ class PopUp {
         const tab = await this.utility.getCurrentTab();
         if (tab && tab.url) {
             const domain = await this.getCurrentDomain();
+            if (!this.allowPurge([await this.getCurrentHostname()], 'host')) {
+                return;
+            }
+
             try {
                 const zoneId = await this.getZoneId(domain);
                 try {
@@ -197,6 +212,10 @@ class PopUp {
         const currentDomain = await this.getCurrentDomain();
         if (currentDomain) {
             this.showPrompt(currentDomain, async (domain) => {
+                if (!this.allowPurge([domain, await this.getCurrentHostname()], 'host')) {
+                    return;
+                }
+
                 try {
                     const zoneId = await this.getZoneId(domain);
                     if (zoneId) {
@@ -221,6 +240,172 @@ class PopUp {
     }
 
     /**
+     * A click handler for the purge domain button. Asks the user for one or more
+     * hostnames and purges every cached asset served from them.
+     * @see https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-hostname/
+     * @param {*} e event handler object
+     */
+    async purgeDomainClick(e) {
+        e.preventDefault();
+        const currentHostname = await this.getCurrentHostname();
+        this.showInputPrompt({
+            message: 'Hostname(s) to purge:',
+            hint: 'Up to 100 hostnames, separated by commas.',
+            placeholder: 'example.com, www.example.com',
+            value: currentHostname,
+        }, async (value) => {
+            const hosts = this.parseHosts(value);
+            if (hosts.length === 0) {
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'INVALID HOSTNAME', 5000);
+                return;
+            }
+
+            if (hosts.length > 100) {
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'MAX 100 HOSTNAMES', 5000);
+                return;
+            }
+
+            if (!this.allowPurge(hosts, 'host')) {
+                return;
+            }
+
+            try {
+                const zoneId = await this.getZoneId(hosts[0]);
+                const rayId = await this.purgeCache({ hosts }, zoneId);
+                if (rayId) {
+                    await this.onPurgeSuccess();
+                }
+            } catch (error) {
+                this.elements.purgeButton.className = '';
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
+            }
+        });
+    }
+
+    /**
+     * A click handler for the purge tag button. Asks the user for one or more cache
+     * tags and purges every asset served with a matching Cache-Tag response header.
+     * The tags are purged in the zone of the current tab, since tags are zone scoped.
+     * @see https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-tags/
+     * @param {*} e event handler object
+     */
+    async purgeTagClick(e) {
+        e.preventDefault();
+        const domain = await this.getCurrentDomain();
+        this.showInputPrompt({
+            message: `Cache tag(s) to purge on ${domain}:`,
+            hint: 'Up to 30 tags, separated by commas. Tags are case sensitive.',
+            placeholder: 'product-listing, homepage',
+            value: '',
+        }, async (value) => {
+            const tags = this.parseTags(value);
+            if (tags.length === 0) {
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'INVALID TAG', 5000);
+                return;
+            }
+
+            if (tags.length > 30) {
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'MAX 30 TAGS', 5000);
+                return;
+            }
+
+            if (!this.allowPurge(tags, 'tag')) {
+                return;
+            }
+
+            try {
+                const zoneId = await this.getZoneId(domain);
+                const rayId = await this.purgeCache({ tags }, zoneId);
+                if (rayId) {
+                    await this.onPurgeSuccess();
+                }
+            } catch (error) {
+                this.elements.purgeButton.className = '';
+                this.elements.status.classList.add('error');
+                this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
+            }
+        });
+    }
+
+    /**
+     * Splits a user provided string into a list of unique cache tags. CloudFlare
+     * tags are printable ASCII without spaces, so anything else is dropped.
+     * @param {*} value a comma separated list of cache tags
+     */
+    parseTags(value) {
+        if (!value) {
+            return [];
+        }
+
+        const tags = value.split(/[\s,]+/)
+            .map(tag => tag.trim())
+            .filter(tag => tag.length > 0 && tag.length <= 1024 && /^[\x20-\x7E]+$/.test(tag));
+
+        return [...new Set(tags)];
+    }
+
+    /**
+     * Refuses a purge when one of its targets is on the blacklist configured in the
+     * extension options, before anything is sent to CloudFlare.
+     * @param {*} targets the hostnames or the cache tags about to be purged
+     * @param {*} kind 'host' or 'tag'
+     */
+    allowPurge(targets, kind) {
+        const blocked = this.utility.blockedByBlacklist(targets, this.settings.blacklist, kind);
+        if (blocked.length === 0) {
+            return true;
+        }
+
+        this.elements.purgeButton.className = '';
+        this.elements.status.classList.remove('success');
+        this.elements.status.classList.add('error');
+        this.utility.setStatusMessage(this.elements.status, 'BLOCKED BY BLACKLIST', 5000, `Blacklisted: ${blocked.join(', ')}`);
+        return false;
+    }
+
+    /**
+     * Splits a user provided string into a list of unique hostnames.
+     * @param {*} value a comma, semicolon or whitespace separated list of hostnames or URLs
+     */
+    parseHosts(value) {
+        if (!value) {
+            return [];
+        }
+
+        const hosts = value.split(/[\s,;]+/)
+            .map(part => this.toHostname(part))
+            .filter(host => host.length > 0);
+
+        return [...new Set(hosts)];
+    }
+
+    /**
+     * Normalizes a user provided value to a hostname. Accepts both a bare
+     * hostname and a full URL. Returns an empty string when the value is invalid.
+     * @param {*} value a hostname or an URL
+     */
+    toHostname(value) {
+        const trimmed = value.trim().toLowerCase();
+        if (!trimmed) {
+            return '';
+        }
+
+        try {
+            const url = trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+            const { hostname } = new URL(url);
+            const isHostname = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+            return isHostname.test(hostname) ? hostname : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    /**
      * A click handler that opens the extension options screen.
      * @param {*} e event handler object
      */
@@ -237,6 +422,18 @@ class PopUp {
         if (tab && tab.url) {
             const domain = await this.utility.getDomain(tab.url);
             return domain;
+        }
+
+        return '';
+    }
+
+    /**
+     * Gets the full hostname of the currently opened tab, sub-domain included.
+     */
+    async getCurrentHostname() {
+        const tab = await this.utility.getCurrentTab();
+        if (tab && tab.url) {
+            return this.toHostname(tab.url);
         }
 
         return '';
@@ -345,6 +542,58 @@ class PopUp {
 
         this.elements.promptYes.addEventListener('click', onYesAction);
         this.elements.promptNo.addEventListener('click', onNoAction);
+    }
+
+    /**
+     * Shows a lightbox with a text input, a purge and a cancel button.
+     * A native window.prompt cannot be used here because a modal dialog steals the
+     * focus from the popup, which closes it and kills the script before it answers.
+     * @param {*} options the message, hint, placeholder and initial value of the prompt
+     * @param {*} okAction an event handler receiving the entered value
+     */
+    showInputPrompt(options, okAction) {
+        const input = this.elements.inputPromptValue;
+        this.elements.inputPromptText.innerText = options.message;
+        this.elements.inputPromptHint.innerText = options.hint || '';
+        input.placeholder = options.placeholder || '';
+        input.value = options.value || '';
+        this.elements.inputPrompt.classList.add('active');
+        input.focus();
+        input.select();
+
+        // The controller detaches every listener below in a single call.
+        const controller = new AbortController();
+        const { signal } = controller;
+        const close = () => {
+            this.elements.inputPrompt.classList.remove('active');
+            controller.abort();
+        };
+
+        const onOkAction = (e) => {
+            e.preventDefault();
+            const { value } = input;
+            close();
+            if (typeof okAction === 'function') {
+                okAction(value);
+            }
+        };
+
+        const onCancelAction = (e) => {
+            e.preventDefault();
+            close();
+        };
+
+        const onKeyDown = (e) => {
+            if (e.key === 'Enter') {
+                onOkAction(e);
+            } else if (e.key === 'Escape') {
+                onCancelAction(e);
+            }
+        };
+
+        this.elements.domainPromptYes.addEventListener('click', onOkAction, { signal });
+        this.elements.domainPromptNo.addEventListener('click', onCancelAction, { signal });
+        input.addEventListener('keydown', onKeyDown, { signal });
     }
 
     /**

@@ -110,6 +110,20 @@
         <div class="field bottom-separator">
           <div id="profiles-table-wrapper"></div>
         </div>
+        <div class="field bottom-separator">
+          <div class="left-part">
+            <label for="blacklist">Never purge:</label>
+            <span class="hint">
+              One domain or cache tag per line. A domain also covers its
+              sub-domains, so "example.com" blocks "www.example.com" too.
+              Matching ignores case. Any purge touching an entry is refused
+              before it reaches CloudFlare.
+            </span>
+          </div>
+          <div class="right-part">
+            <textarea id="blacklist" placeholder="example.com&#10;www.production-site.com&#10;critical-cache-tag"></textarea>
+          </div>
+        </div>
         <div class="field">
           <button class="right mr-8 warning" id="save">Save Settings</button>
           <div class="clear"></div>

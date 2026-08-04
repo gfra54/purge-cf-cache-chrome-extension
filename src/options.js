@@ -19,11 +19,6 @@ import Api from './api.js';
 
 class Options {
     constructor() {
-        const isFirefox = typeof InstallTrigger !== 'undefined';
-        if (isFirefox) {
-            chrome = browser;
-        }
-
         this.utility = new Utility();
         this.elements = {
             saveButton: document.querySelector('#save'),
@@ -45,6 +40,7 @@ class Options {
             addProfileToken: document.querySelector('#add-profile-token'),
             propertiesListGroup: document.querySelector('#cf-properties-list'),
             propertiesList: document.querySelector('#cf-properties-list .group-body'),
+            blacklistBox: document.querySelector('#blacklist'),
         };
         this.settings = {
             tag: 'options',
@@ -54,10 +50,12 @@ class Options {
             refresh: null,
             hidePurgeAll: false,
             showDevMode: false,
-            profiles: null
+            profiles: null,
+            blacklist: null
         };
 
         this.profilesModel = null;
+        this.blacklist = [];
         this.elements.saveButton.addEventListener('click', this.saveClick.bind(this));
         this.elements.customPurgeButton.addEventListener('click', this.customPurge.bind(this));
         this.elements.addProfileButton.addEventListener('click', this.addProfile.bind(this));
@@ -80,6 +78,8 @@ class Options {
             this.elements.emailBox.value = items.email;
             this.elements.hidePurgeAllCheckbox.checked = items.hidePurgeAll;
             this.elements.showDevModeCheckbox.checked = items.showDevMode;
+            this.blacklist = this.utility.parseBlacklist(items.blacklist);
+            this.elements.blacklistBox.value = this.blacklist.join('\n');
 
             this.api = new Api(items.email, items.key, items.token);
 
@@ -178,6 +178,7 @@ class Options {
         const refresh = this.elements.refreshBox.value;
         const hidePurgeAll = this.elements.hidePurgeAllCheckbox.checked;
         const showDevMode = this.elements.showDevModeCheckbox.checked;
+        const blacklist = this.utility.parseBlacklist(this.elements.blacklistBox.value);
 
         this.elements.errorField.innerHTML = '';
 
@@ -199,7 +200,8 @@ class Options {
             refresh,
             hidePurgeAll,
             showDevMode,
-            profiles: this.profilesModel
+            profiles: this.profilesModel,
+            blacklist
         };
 
         chrome.storage.sync.set(this.settings, () => {
@@ -249,6 +251,13 @@ class Options {
                 this.utility.setStatusMessage(this.elements.purgeStatus, 'All urls should be under the same domain.', 3000);
                 return;
             }
+        }
+
+        const hostnames = urls.map(item => new URL(item).hostname);
+        const blocked = this.utility.blockedByBlacklist(hostnames, this.blacklist, 'host');
+        if (blocked.length > 0) {
+            this.utility.setStatusMessage(this.elements.purgeStatus, `Blocked by the blacklist: ${[...new Set(blocked)].join(', ')}`, 5000);
+            return;
         }
 
         try {

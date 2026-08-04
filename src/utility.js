@@ -8288,8 +8288,68 @@ export default class Utility {
     }
 
     /**
-     * Sometimes Cloudflare requires 
-     * @param {*} domain 
+     * Turns the raw blacklist text of the options page into a list of entries.
+     * @param {*} value a newline or comma separated list of domains and cache tags
+     */
+    parseBlacklist(value) {
+        if (Array.isArray(value)) {
+            return value.map(entry => entry.trim()).filter(entry => entry.length > 0);
+        }
+
+        if (!value) {
+            return [];
+        }
+
+        return value.split(/[\r\n,]+/)
+            .map(entry => entry.trim())
+            .filter(entry => entry.length > 0);
+    }
+
+    /**
+     * Returns the purge targets that the user blacklisted, so a purge can be
+     * refused before any request reaches CloudFlare.
+     * @param {*} targets the hostnames or the cache tags about to be purged
+     * @param {*} blacklist the blacklist entries stored in the extension settings
+     * @param {*} kind 'host' to match domains and their sub-domains, 'tag' to match exactly
+     */
+    blockedByBlacklist(targets, blacklist, kind) {
+        const entries = this.parseBlacklist(blacklist);
+        if (entries.length === 0) {
+            return [];
+        }
+
+        return targets.filter(
+            target => entries.some(entry => this.blacklistEntryMatches(entry, target, kind)),
+        );
+    }
+
+    /**
+     * Matches a single blacklist entry against a purge target. Matching is case
+     * insensitive, even for cache tags, which CloudFlare itself treats as case
+     * sensitive: the blacklist is a safety net, so it errs towards blocking. A domain
+     * entry also covers its sub-domains, so 'example.com' blocks 'www.example.com'
+     * too, while a cache tag has no hierarchy and is matched whole.
+     * @param {*} entry a blacklist entry
+     * @param {*} target a hostname or a cache tag
+     * @param {*} kind 'host' or 'tag'
+     */
+    blacklistEntryMatches(entry, target, kind) {
+        if (!entry || !target) {
+            return false;
+        }
+
+        const value = target.trim().toLowerCase();
+        if (kind === 'tag') {
+            return entry.toLowerCase() === value;
+        }
+
+        const domain = entry.toLowerCase().replace(/^\*\./, '');
+        return value === domain || value.endsWith(`.${domain}`);
+    }
+
+    /**
+     * Sometimes Cloudflare requires
+     * @param {*} domain
      */
     fixDomain(domain) {
         const count = (domain.match(/\./g) || []).length;
@@ -8322,11 +8382,6 @@ export default class Utility {
      */
     getCurrentTab() {
         return new Promise((resolve) => {
-            const isFirefox = typeof InstallTrigger !== 'undefined';
-            if (isFirefox) {
-                chrome = browser;
-            }
-
             chrome.tabs.query({
                 active: true,
                 currentWindow: true,

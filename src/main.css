@@ -54,8 +54,19 @@ body {
     margin-right: 25px;
 }
 
-#lightbox {
+#lightbox, #domain-lightbox {
     background-color: #23272A;
+}
+
+.input-prompt {
+    box-sizing: border-box;
+    padding: 20px 30px;
+}
+
+.input-prompt .hint {
+    color: #878c92;
+    font-size: 12px;
+    padding-top: 0;
 }
 
 #details:not(:empty) {

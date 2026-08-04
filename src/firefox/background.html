@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>CloudFlare Purge background</title>
+</head>
+
+<body>
+  <!-- Firefox has no service worker support, so background.js runs in a background
+       page. A page is used instead of "background.scripts" because background.js is
+       an ES module and a page can load it with a plain module script tag. -->
+  <script type="module" src="background.js"></script>
+</body>
+
+</html>
