@@ -103,48 +103,54 @@ class Options {
         });
     }
 
+    /**
+     * Builds a table row. Every cell is either a string, which becomes text, or a
+     * ready made element. Text never goes through innerHTML, so profile names,
+     * zone names and anything else the extension did not author cannot inject
+     * markup into the options page.
+     * @param {*} cells the cell contents
+     * @param {*} tagName 'td' for a body row, 'th' for the header row
+     */
+    createRow(cells, tagName) {
+        const row = document.createElement('tr');
+        cells.forEach((content) => {
+            const cell = document.createElement(tagName || 'td');
+            cell.append(content);
+            row.append(cell);
+        });
+
+        return row;
+    }
+
     renderProfiles(profiles) {
+        const wrapper = this.elements.profilesTableWrapper;
+        wrapper.replaceChildren();
         if (!profiles || Object.keys(profiles).length === 0) {
             return;
         }
 
-        let tableHtml = `
-        <table>
-            <tr>
-                <th>Profile</th>
-                <th>API Token</th>
-            </tr>
-        `;
+        const table = document.createElement('table');
+        table.append(this.createRow(['Profile', 'API Token', ''], 'th'));
 
-        for (const profile in profiles) {
-            const profileName = this.utility.escapeHtml(profile);
-            const profileToken = profiles[profile];
-
-            tableHtml += `
-                <tr>
-                    <td>${profileName}</td>
-                    <td>${this.utility.escapeHtml(this.obfuscateToken(profileToken))}</td>
-                    <td>
-                        <a href="#" class="profile-remove" data-item="${profileName}">remove</a>
-                    </td>
-                </tr>
-            `;
-        }
-
-        tableHtml += '</table>';
-
-
-        this.elements.profilesTableWrapper.innerHTML = tableHtml;
-        document.querySelectorAll('.profile-remove').forEach(element => {
-            element.addEventListener('click', (e) => {
-                const dataItem = e.target.getAttribute('data-item');
-                delete this.profilesModel[dataItem];
-                if (Object.keys(this.profilesModel).length === 0) {
-                    this.elements.profilesTableWrapper.innerHTML = '';
-                }
+        Object.keys(profiles).forEach((profileName) => {
+            const removeLink = document.createElement('a');
+            removeLink.href = '#';
+            removeLink.className = 'profile-remove';
+            removeLink.textContent = 'remove';
+            removeLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                delete this.profilesModel[profileName];
                 this.renderProfiles(this.profilesModel);
             });
+
+            table.append(this.createRow([
+                profileName,
+                this.obfuscateToken(profiles[profileName]),
+                removeLink,
+            ]));
         });
+
+        wrapper.append(table);
     }
 
     obfuscateToken(token) {
@@ -180,15 +186,21 @@ class Options {
         const showDevMode = this.elements.showDevModeCheckbox.checked;
         const blacklist = this.utility.parseBlacklist(this.elements.blacklistBox.value);
 
-        this.elements.errorField.innerHTML = '';
+        this.elements.errorField.replaceChildren();
 
         if (((key === '' || email === '') && token === '') || refresh === '') {
-            let validationMessage = 'The following fields are required:';
-            validationMessage += !key ? '<p>Api Key</p>' : '';
-            validationMessage += !email ? '<p>E-mail</p>' : '';
-            validationMessage += !token ? '<p>OR a valid Api Token</p>' : '';
-            validationMessage += !refresh ? '<p>Refresh Timeout</p>' : '';
-            this.elements.errorField.innerHTML = validationMessage;
+            const missingFields = [];
+            if (!key) { missingFields.push('Api Key'); }
+            if (!email) { missingFields.push('E-mail'); }
+            if (!token) { missingFields.push('OR a valid Api Token'); }
+            if (!refresh) { missingFields.push('Refresh Timeout'); }
+
+            this.elements.errorField.append('The following fields are required:');
+            missingFields.forEach((field) => {
+                const paragraph = document.createElement('p');
+                paragraph.textContent = field;
+                this.elements.errorField.append(paragraph);
+            });
             return;
         }
 
@@ -205,7 +217,7 @@ class Options {
         };
 
         chrome.storage.sync.set(this.settings, () => {
-            this.elements.statusField.innerHTML = 'Options saved.';
+            this.elements.statusField.textContent = 'Options saved.';
             if ((this.elements.keyBox.value !== '' && this.elements.emailBox.value !== '') || this.elements.tokenBox.value !== '') {
                 this.elements.customPurgeGroup.classList.remove('hide');
             } else {
@@ -213,7 +225,7 @@ class Options {
             }
             this.restoreOptions();
             setTimeout(() => {
-                this.elements.statusField.innerHTML = '';
+                this.elements.statusField.textContent = '';
             }, 1500);
         });
     }
@@ -275,39 +287,27 @@ class Options {
 
     async listOwnedProperties() {
         const ownedProperties = await this.api.getZones();
-        let propertiesListHtml= `
-            <table>
-                <tr>
-                    <th>Zone ID</th>
-                    <th>Created Date</th>
-                    <th>Registrar</th>
-                    <th>Domain</th>
-                </tr>
-        `;
-        // The zone details come straight from the CloudFlare API, so they are
-        // escaped rather than interpolated into the table as raw HTML.
-        ownedProperties.forEach(zone => {
-            const registrar = this.utility.escapeHtml(zone.original_registrar ? zone.original_registrar : 'Cloudflare');
-            const zoneName = this.utility.escapeHtml(zone.name);
-            const zoneHref = encodeURIComponent(zone.name);
-            propertiesListHtml += `
-            <tr>
-                <td>${this.utility.escapeHtml(zone.id)}</td>
-                <td>
-                    ${this.utility.escapeHtml(new Date(zone.created_on).toString())}
-                </td>
-                <td>
-                    ${registrar}
-                </td>
-                <td>
-                    <a href="https://${zoneHref}" target="_blank" rel="noopener noreferrer">${zoneName}</a>
-                </td>
-            </tr>
-            `;
+        const table = document.createElement('table');
+        table.append(this.createRow(['Zone ID', 'Created Date', 'Registrar', 'Domain'], 'th'));
+
+        ownedProperties.forEach((zone) => {
+            const link = document.createElement('a');
+            // The scheme is fixed here, so a hostile zone name cannot smuggle in
+            // a javascript: URL, and textContent keeps it out of the markup.
+            link.href = `https://${zone.name}`;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.textContent = zone.name;
+
+            table.append(this.createRow([
+                zone.id,
+                new Date(zone.created_on).toString(),
+                zone.original_registrar ? zone.original_registrar : 'Cloudflare',
+                link,
+            ]));
         });
 
-        propertiesListHtml += '</table>';
-        this.elements.propertiesList.innerHTML = propertiesListHtml;
+        this.elements.propertiesList.replaceChildren(table);
     }
 }
 

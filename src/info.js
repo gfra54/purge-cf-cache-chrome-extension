@@ -143,13 +143,34 @@ export default class PurgeInfo {
     }
 
     /**
+     * Appends one 'label: value' line to the info panel. The value is added as a
+     * text node, so a response header cannot inject markup into the popup.
+     * @param {*} label the static label of the line
+     * @param {*} value the value read from the response headers
+     * @param {*} emphasize renders the value in bold when true
+     */
+    appendDetail(label, value, emphasize) {
+        const details = this.elements.details;
+        details.append(label);
+        if (emphasize) {
+            const strong = document.createElement('strong');
+            strong.textContent = value;
+            details.append(strong);
+        } else {
+            details.append(String(value === null || value === undefined ? '' : value));
+        }
+
+        details.append(document.createElement('br'));
+    }
+
+    /**
      * Gets Cloudflare response INFO headers for the current URL.
      * @param {*} e Event object
      */
     async getUrl(e) {
         e.preventDefault();
         this.elements.details.className = '';
-        this.elements.details.innerHTML = '';
+        this.elements.details.replaceChildren();
         const tab = await this.utility.getCurrentTab();
         if (tab.url === undefined) {
             return;
@@ -179,12 +200,12 @@ export default class PurgeInfo {
                 if (this.stats.ray) {
                     this.elements.details.classList.add('active');
                     // Every value below comes from the response headers of the
-                    // visited site, so it is escaped before it reaches the DOM.
-                    const escape = this.utility.escapeHtml.bind(this.utility);
-                    this.elements.details.innerHTML = `Node location: ${escape(this.stats.serverLocation)}<br/>`
-                        + `Ray: ${escape(this.stats.ray)}<br/>`
-                        + `Status: <strong>${escape(this.stats.status)}</strong><br/>`
-                        + `Cache control: ${escape(this.stats.cacheControl)}<br/>`;
+                    // visited site, so it is appended as text and never as markup.
+                    this.elements.details.replaceChildren();
+                    this.appendDetail('Node location: ', this.stats.serverLocation);
+                    this.appendDetail('Ray: ', this.stats.ray);
+                    this.appendDetail('Status: ', this.stats.status, true);
+                    this.appendDetail('Cache control: ', this.stats.cacheControl);
                 }
             }
         } catch (ex) {
