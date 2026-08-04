@@ -29,7 +29,10 @@
    "browser_specific_settings": {
     "gecko": {
       "id": "{0a40b0aa-001b-41c9-a3d7-7f4c4fe77025}",
-      "strict_min_version": "121.0"
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["authenticationInfo"]
+      }
     }
   }
 }
