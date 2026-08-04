@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "CloudFlare Purge Plugin",
-  "short_name": "CloudFlare Purge",
-  "description": "This extension can purge the CloudFlare cache for the current page of your CloudFlare enabled website",
+  "name": "CloudFlare Advanced Purge Plugin",
+  "short_name": "CloudFlare Advanced Purge",
+  "description": "This extension can purge the CloudFlare cache for the current page, for a domain or for a tag of your CloudFlare enabled website",
   "version": "1.9.0",
   "options_page": "options.html",
   "icons": { "19": "icon.png",
@@ -21,7 +21,7 @@
    "storage"
    ],
    "host_permissions": [
-      "http://*/",
-      "https://*/"
+      "http://*/*",
+      "https://*/*"
    ]
 }
