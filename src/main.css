@@ -6,7 +6,37 @@ body {
 
 .group .group-title {
     background-color: #4f5358;
-    padding: 10px 30px
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+}
+
+.group .group-title h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+#cache-status:not(:empty) {
+    padding: 8px 16px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #ffffff;
+    border-left: 6px solid var(--cache-color, #546e7a);
+    background-color: #1b1e20;
+}
+
+#cache-status .cache-title {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#cache-status .cache-title .cache-value {
+    color: var(--cache-color, #ffffff);
+    filter: brightness(1.6);
+}
+
+#cache-status .cache-extra {
+    color: #878c92;
 }
 
 .group .group-body {
@@ -28,10 +58,9 @@ body {
 }
 
 .logo {
-    float: left;
-    width: 40px;
-    height: 40px;
-    margin-right: 20px;
+    width: 24px;
+    height: 24px;
+    margin-right: 10px;
 }
 
 #optionsButton {
@@ -69,6 +98,14 @@ body {
     padding-top: 0;
 }
 
+#status-detail:not(:empty) {
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 8px 20px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
 #details:not(:empty) {
     background-color: #af661a;
     padding: 20px;
@@ -79,4 +116,42 @@ select {
     border: solid 1px #4f5358;
     color: white;
     padding: 4px;
+}
+
+/* A zone name can be arbitrarily long, so the select is capped to keep the
+   popup at its designed width and let the browser truncate the label. */
+#select-zones {
+    max-width: 165px;
+}
+
+.zone-links {
+    padding-top: 0;
+}
+
+.zone-links button {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    text-align: left;
+}
+
+.zone-links button:last-child {
+    margin-bottom: 0;
+}
+
+/* The blacklist only refuses the purges that wipe the cache of a whole domain,
+   so the warning is a notice and not an error. */
+.blacklist-warning {
+    background-color: #af661a;
+    box-sizing: border-box;
+    padding: 10px 12px;
+}
+
+.blacklist-warning strong {
+    display: block;
+    word-break: break-all;
+}
+
+.blacklist-warning span {
+    font-size: 12px;
 }

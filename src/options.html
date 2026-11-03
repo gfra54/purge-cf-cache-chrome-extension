@@ -112,16 +112,17 @@
         </div>
         <div class="field bottom-separator">
           <div class="left-part">
-            <label for="blacklist">Never purge:</label>
+            <label for="blacklist">Never purge a whole domain:</label>
             <span class="hint">
-              One domain or cache tag per line. A domain also covers its
-              sub-domains, so "example.com" blocks "www.example.com" too.
-              Matching ignores case. Any purge touching an entry is refused
-              before it reaches CloudFlare.
+              One domain per line. A domain also covers its sub-domains, so
+              "example.com" protects "www.example.com" too, and matching ignores
+              case. Purging the entire cache or a whole hostname is refused for
+              these domains before it reaches CloudFlare, while purging a single
+              URL or a cache tag stays allowed.
             </span>
           </div>
           <div class="right-part">
-            <textarea id="blacklist" placeholder="example.com&#10;www.production-site.com&#10;critical-cache-tag"></textarea>
+            <textarea id="blacklist" placeholder="example.com&#10;www.production-site.com"></textarea>
           </div>
         </div>
         <div class="field">

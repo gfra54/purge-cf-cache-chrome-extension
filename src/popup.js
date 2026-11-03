@@ -16,6 +16,7 @@
 
 import Utility from './utility.js';
 import PurgeInfo from './info.js';
+import { describeStatus, storageKey } from './cacheStatusInfo.js';
 
 class PopUp {
     constructor() {
@@ -26,6 +27,9 @@ class PopUp {
         this.settings = null;
         this.settingsSet = false;
         this.defaultPromptText = 'Purge entire cache?';
+        this.zones = [];
+        this.selectedZone = null;
+        this.protectedHostname = null;
         this.elements = {
             purgeButton: document.querySelector('#purgeButton'),
             purgeAllButton: document.querySelector('#purgeAllButton'),
@@ -37,6 +41,8 @@ class PopUp {
             lightBox: document.querySelector('#lightbox'),
             devMode: document.querySelector('#dev-mode'),
             status: document.querySelector('#status'),
+            statusDetail: document.querySelector('#status-detail'),
+            cacheStatus: document.querySelector('#cache-status'),
             refresh: document.querySelector('#refresh'),
             refreshCheckbox: document.querySelector('.refresh-checkbox'),
             subStatus: document.querySelector('#sub-status'),
@@ -46,12 +52,16 @@ class PopUp {
             infoBtn: document.querySelector('#infoBtn'),
             selectProfiles: document.querySelector('#select-profiles'),
             profilesParent: document.querySelector('.profiles-parent'),
+            selectZones: document.querySelector('#select-zones'),
+            zonesParent: document.querySelector('.zones-parent'),
+            zoneLinks: document.querySelector('.zone-links'),
             inputPrompt: document.querySelector('#input-lightbox'),
             inputPromptText: document.querySelector('#input-prompt-text'),
             inputPromptHint: document.querySelector('#input-prompt-hint'),
             inputPromptValue: document.querySelector('#input-prompt-value'),
             inputPromptYes: document.querySelector('#inputPromptYes'),
             inputPromptNo: document.querySelector('#inputPromptNo'),
+            blacklistWarning: document.querySelector('#blacklist-warning'),
         };
 
         this.hideElement(this.elements.purgeButton);
@@ -62,6 +72,9 @@ class PopUp {
         this.hideElement(this.elements.refreshCheckbox);
         this.hideElement(this.elements.infoBtn);
         this.hideElement(this.elements.profilesParent);
+        this.hideElement(this.elements.zonesParent);
+        this.hideElement(this.elements.zoneLinks);
+        this.hideElement(this.elements.blacklistWarning);
         this.showElement(this.elements.optionsButton);
         this.elements.prompText.innerText = this.defaultPromptText;
         this.elements.purgeAllButton.addEventListener('click', this.purgeAllClick.bind(this));
@@ -71,11 +84,68 @@ class PopUp {
         this.elements.optionsButton.addEventListener('click', this.optionsButtonClick.bind(this));
         this.elements.devMode.addEventListener('change', this.toggleDeveloperMode.bind(this));
         this.elements.selectProfiles.addEventListener('change', this.changeProfile.bind(this));
+        this.elements.selectZones.addEventListener('change', this.changeZone.bind(this));
+        this.elements.zoneLinks.addEventListener('click', this.zoneLinkClick.bind(this));
         this.loadSettings();
+        this.showCacheStatus();
     }
 
     static build() {
         return new PopUp();
+    }
+
+    /**
+     * Shows, at the top of the popup, the cf-cache-status of the page of the current
+     * tab as the background script recorded it when the page was received, with what
+     * the value means. Nothing is shown for a page that was not served by CloudFlare.
+     */
+    async showCacheStatus() {
+        const box = this.elements.cacheStatus;
+        try {
+            const tab = await this.utility.getCurrentTab();
+            if (!tab) {
+                return;
+            }
+
+            const key = storageKey(tab.id);
+            const stored = await chrome.storage.session.get(key);
+            const info = stored[key];
+            const described = info && describeStatus(info.status);
+            if (!described) {
+                box.textContent = '';
+                return;
+            }
+
+            const title = document.createElement('div');
+            title.className = 'cache-title';
+            const value = document.createElement('span');
+            value.className = 'cache-value';
+            value.textContent = described.status;
+            title.append('CF cache status: ', value);
+
+            const meaning = document.createElement('div');
+            meaning.textContent = described.meaning;
+
+            const extra = [];
+            if (info.age) {
+                extra.push(`Age ${info.age}s`);
+            }
+
+            if (info.ray) {
+                extra.push(`Ray ${info.ray}`);
+            }
+
+            box.style.setProperty('--cache-color', described.color);
+            box.replaceChildren(title, meaning);
+            if (extra.length > 0) {
+                const details = document.createElement('div');
+                details.className = 'cache-extra';
+                details.textContent = extra.join(' - ');
+                box.append(details);
+            }
+        } catch (error) {
+            console.log(error);
+        }
     }
 
     /**
@@ -156,6 +226,8 @@ class PopUp {
                 }
             }
 
+            await this.updateBlacklistWarning();
+
             if (this.settings.profiles && Object.keys(this.settings.profiles).length > 0) {
                 const selectProfilesElem = this.elements.selectProfiles;
                 selectProfilesElem.options[selectProfilesElem.options.length] = new Option('Default Token', this.settings.token);
@@ -167,7 +239,149 @@ class PopUp {
 
                 this.showElement(this.elements.profilesParent);
             }
+
+            await this.loadZones();
         }
+    }
+
+    /**
+     * Fills the zone select with every zone the current API token can read and
+     * preselects the zone that serves the current tab, when there is one.
+     */
+    async loadZones() {
+        const select = this.elements.selectZones;
+        this.selectedZone = null;
+        this.zones = [];
+        this.showElement(this.elements.zonesParent);
+        this.hideElement(this.elements.zoneLinks);
+        this.setZonePlaceholder('Loading zones...');
+
+        try {
+            this.zones = await this.getZones();
+        } catch (error) {
+            this.setZonePlaceholder('Unable to load the zones');
+            console.log(error.message);
+            return;
+        }
+
+        if (this.zones.length === 0) {
+            this.setZonePlaceholder('No zone on this token');
+            return;
+        }
+
+        this.setZonePlaceholder('Select a zone');
+        this.zones.forEach((zone) => {
+            select.options[select.options.length] = new Option(zone.name, zone.id);
+        });
+
+        const currentZone = this.matchZone(await this.getCurrentHostname());
+        if (currentZone) {
+            select.value = currentZone.id;
+            this.selectZone(currentZone);
+        }
+    }
+
+    /**
+     * Resets the zone select to a single, valueless entry.
+     * @param {*} message the text of the entry
+     */
+    setZonePlaceholder(message) {
+        const select = this.elements.selectZones;
+        select.replaceChildren();
+        select.options[0] = new Option(message, '');
+    }
+
+    /**
+     * Finds the zone a hostname belongs to. The longest match wins, so a zone
+     * for a sub-domain is preferred over the zone of its parent domain.
+     * @param {*} hostname a hostname, sub-domain included
+     */
+    matchZone(hostname) {
+        if (!hostname) {
+            return null;
+        }
+
+        const matches = this.zones
+            .filter(zone => hostname === zone.name || hostname.endsWith(`.${zone.name}`))
+            .sort((a, b) => b.name.length - a.name.length);
+
+        return matches.length > 0 ? matches[0] : null;
+    }
+
+    /**
+     * A change handler for the zone select. Selecting a zone reveals the
+     * shortcuts to its CloudFlare dashboard pages.
+     * @param {*} e event handler object
+     */
+    changeZone(e) {
+        const zone = this.zones.find(item => item.id === e.target.value);
+        this.selectZone(zone);
+    }
+
+    /**
+     * Keeps the selected zone and shows or hides its dashboard shortcuts.
+     * @param {*} zone a CloudFlare zone, or a falsy value to clear the selection
+     */
+    selectZone(zone) {
+        this.selectedZone = zone || null;
+        if (this.selectedZone) {
+            this.showElement(this.elements.zoneLinks);
+        } else {
+            this.hideElement(this.elements.zoneLinks);
+        }
+    }
+
+    /**
+     * A click handler for the dashboard shortcuts. Every shortcut carries the
+     * dashboard page it opens in a data attribute.
+     * @param {*} e event handler object
+     */
+    zoneLinkClick(e) {
+        const button = e.target.closest('button[data-zone-page]');
+        if (!button || !this.selectedZone) {
+            return;
+        }
+
+        e.preventDefault();
+        chrome.tabs.create({ url: this.zoneDashboardUrl(this.selectedZone, button.dataset.zonePage) });
+    }
+
+    /**
+     * Builds a deep link to a page of the CloudFlare dashboard. The dashboard
+     * resolves the :account placeholder itself when the zone carries no account,
+     * which happens when the token is not allowed to read it.
+     * @see https://blog.cloudflare.com/deeplinks-and-scrollanchor
+     * @param {*} zone a CloudFlare zone
+     * @param {*} page a dashboard page path, e.g. 'dns/records'
+     */
+    zoneDashboardUrl(zone, page) {
+        const account = zone.account && zone.account.id
+            ? encodeURIComponent(zone.account.id)
+            : ':account';
+
+        return `https://dash.cloudflare.com/?to=/${account}/${encodeURIComponent(zone.name)}/${page}`;
+    }
+
+    /**
+     * Warns that the domain of the current tab sits on the blacklist. The warning
+     * is informative only: the blacklist refuses the purges that wipe the cache of
+     * the whole domain, while purging a single URL or a cache tag stays available.
+     */
+    async updateBlacklistWarning() {
+        const hostname = await this.getCurrentHostname();
+        const blocked = this.utility.blockedByBlacklist([hostname], this.settings.blacklist);
+        this.protectedHostname = blocked.length > 0 ? hostname : null;
+        if (!this.protectedHostname) {
+            this.hideElement(this.elements.blacklistWarning);
+            return;
+        }
+
+        const title = document.createElement('strong');
+        title.textContent = `${this.protectedHostname} is blacklisted`;
+        const detail = document.createElement('span');
+        detail.textContent = 'Purging the cache of the whole domain is refused. Purging this page or a cache tag still works.';
+        this.elements.blacklistWarning.replaceChildren(title, detail);
+        this.showElement(this.elements.blacklistWarning);
     }
 
     /**
@@ -176,31 +390,25 @@ class PopUp {
      */
     async purgeButtonClick(e) {
         e.preventDefault();
-        const tab = await this.utility.getCurrentTab();
-        if (tab && tab.url) {
-            const domain = await this.getCurrentDomain();
-            if (!this.allowPurge([await this.getCurrentHostname()], 'host')) {
-                return;
+        await this.runPurge('the current page', async () => {
+            const tab = await this.utility.getCurrentTab();
+            if (!tab) {
+                throw new Error('No active tab was found, so there is no page to purge.');
             }
 
-            try {
-                const zoneId = await this.getZoneId(domain);
-                try {
-                    const rayId = await this.purgeCache({ files: [tab.url] }, zoneId);
-                    if (rayId) {
-                        await this.onPurgeSuccess();
-                    }
-                } catch (purgeError) {
-                    this.elements.purgeButton.className = '';
-                    this.elements.status.classList.add('error');
-                    this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, purgeError);
-                }
-            } catch (error) {
-                this.elements.purgeButton.className = '';
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
+            if (!tab.url) {
+                throw new Error('The browser did not give the extension the address of this tab. Close the popup, click on the page, then open the popup again.');
             }
-        }
+
+            if (!/^https?:\/\//i.test(tab.url)) {
+                throw new Error(`${tab.url} is not a website. Only http and https pages can be purged.`);
+            }
+
+            // A single URL is never refused: the blacklist only guards the purges
+            // that wipe the cache of a whole domain.
+            const zoneId = await this.getZoneId(this.utility.getDomain(tab.url));
+            return { zoneId, rayId: await this.purgeCache({ files: [tab.url] }, zoneId), what: tab.url };
+        });
     }
 
     /**
@@ -209,34 +417,28 @@ class PopUp {
      */
     async purgeAllClick(e) {
         e.preventDefault();
-        const currentDomain = await this.getCurrentDomain();
-        if (currentDomain) {
-            this.showPrompt(currentDomain, async (domain) => {
-                if (!this.allowPurge([domain, await this.getCurrentHostname()], 'host')) {
-                    return;
-                }
-
-                try {
-                    const zoneId = await this.getZoneId(domain);
-                    if (zoneId) {
-                        try {
-                            const rayId = this.purgeCache({ purge_everything: true }, zoneId);
-                            if (rayId) {
-                                await this.onPurgeSuccess();
-                            }
-                        } catch (error) {
-                            this.elements.purgeButton.className = '';
-                            this.elements.status.classList.add('error');
-                            this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
-                        }
-                    }
-                } catch (zoneError) {
-                    this.elements.purgeButton.className = '';
-                    this.elements.status.classList.add('error');
-                    this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, zoneError);
-                }
-            });
+        let currentDomain = '';
+        try {
+            currentDomain = await this.getCurrentDomain();
+        } catch (error) {
+            // An address that is not a website has no domain, handled right below.
         }
+
+        if (!currentDomain) {
+            this.report('error', 'PURGE FAILED', 'The current tab is not a website, so there is no domain to purge. Open the site first.');
+            return;
+        }
+
+        this.showPrompt(currentDomain, async (domain) => {
+            if (!this.allowFullPurge([domain, await this.getCurrentHostname()])) {
+                return;
+            }
+
+            await this.runPurge(`the whole cache of ${domain}`, async () => {
+                const zoneId = await this.getZoneId(domain);
+                return { zoneId, rayId: await this.purgeCache({ purge_everything: true }, zoneId), what: domain };
+            });
+        });
     }
 
     /**
@@ -250,38 +452,29 @@ class PopUp {
         const currentHostname = await this.getCurrentHostname();
         this.showInputPrompt({
             message: 'Hostname(s) to purge:',
-            hint: 'Up to 100 hostnames, separated by commas.',
+            hint: 'Up to 100 hostnames, separated by commas. Blacklisted domains are refused.',
             placeholder: 'example.com, www.example.com',
             value: currentHostname,
         }, async (value) => {
             const hosts = this.parseHosts(value);
             if (hosts.length === 0) {
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'INVALID HOSTNAME', 5000);
+                this.report('error', 'INVALID HOSTNAME', 'Enter one or more hostnames, for example example.com.');
                 return;
             }
 
             if (hosts.length > 100) {
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'MAX 100 HOSTNAMES', 5000);
+                this.report('error', 'MAX 100 HOSTNAMES', `${hosts.length} hostnames were entered, CloudFlare accepts 100 at most.`);
                 return;
             }
 
-            if (!this.allowPurge(hosts, 'host')) {
+            if (!this.allowFullPurge(hosts)) {
                 return;
             }
 
-            try {
+            await this.runPurge(`every asset of ${hosts.join(', ')}`, async () => {
                 const zoneId = await this.getZoneId(hosts[0]);
-                const rayId = await this.purgeCache({ hosts }, zoneId);
-                if (rayId) {
-                    await this.onPurgeSuccess();
-                }
-            } catch (error) {
-                this.elements.purgeButton.className = '';
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
-            }
+                return { zoneId, rayId: await this.purgeCache({ hosts }, zoneId), what: hosts.join(', ') };
+            });
         });
     }
 
@@ -297,45 +490,33 @@ class PopUp {
         const domain = await this.getCurrentDomain();
         if (!domain) {
             // Cache tags are scoped to a zone, and the zone comes from the current tab.
-            this.elements.status.classList.add('error');
-            this.utility.setStatusMessage(this.elements.status, 'OPEN A SITE FIRST', 5000);
+            this.report('error', 'OPEN A SITE FIRST', 'Cache tags belong to a zone, and the zone is taken from the current tab. Open a website first.');
             return;
         }
 
         this.showInputPrompt({
             message: `Cache tag(s) to purge on ${domain}:`,
-            hint: 'Up to 30 tags, separated by commas. Tags are case sensitive.',
+            hint: this.protectedHostname
+                ? 'Up to 30 tags, separated by commas. Tags are case sensitive. Allowed even though this domain is blacklisted.'
+                : 'Up to 30 tags, separated by commas. Tags are case sensitive.',
             placeholder: 'product-listing, homepage',
             value: '',
         }, async (value) => {
             const tags = this.parseTags(value);
             if (tags.length === 0) {
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'INVALID TAG', 5000);
+                this.report('error', 'INVALID TAG', 'Enter one or more cache tags, separated by commas. Tags are printable ASCII without spaces.');
                 return;
             }
 
             if (tags.length > 30) {
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'MAX 30 TAGS', 5000);
+                this.report('error', 'MAX 30 TAGS', `${tags.length} tags were entered, CloudFlare accepts 30 at most.`);
                 return;
             }
 
-            if (!this.allowPurge(tags, 'tag')) {
-                return;
-            }
-
-            try {
+            await this.runPurge(`the cache tags ${tags.join(', ')}`, async () => {
                 const zoneId = await this.getZoneId(domain);
-                const rayId = await this.purgeCache({ tags }, zoneId);
-                if (rayId) {
-                    await this.onPurgeSuccess();
-                }
-            } catch (error) {
-                this.elements.purgeButton.className = '';
-                this.elements.status.classList.add('error');
-                this.utility.setStatusMessage(this.elements.status, 'PURGE FAILED', 5000, error);
-            }
+                return { zoneId, rayId: await this.purgeCache({ tags }, zoneId), what: tags.join(', ') };
+            });
         });
     }
 
@@ -357,21 +538,23 @@ class PopUp {
     }
 
     /**
-     * Refuses a purge when one of its targets is on the blacklist configured in the
-     * extension options, before anything is sent to CloudFlare.
-     * @param {*} targets the hostnames or the cache tags about to be purged
-     * @param {*} kind 'host' or 'tag'
+     * Refuses a purge that would wipe the cache of a whole domain listed on the
+     * blacklist configured in the extension options, before anything is sent to
+     * CloudFlare. Purging a single URL or a cache tag stays allowed on such a
+     * domain, so this only guards the purge everything and purge domain buttons.
+     * @param {*} hostnames the hostnames whose entire cache is about to be purged
      */
-    allowPurge(targets, kind) {
-        const blocked = this.utility.blockedByBlacklist(targets, this.settings.blacklist, kind);
+    allowFullPurge(hostnames) {
+        const blocked = this.utility.blockedByBlacklist(hostnames, this.settings.blacklist);
         if (blocked.length === 0) {
             return true;
         }
 
-        this.elements.purgeButton.className = '';
-        this.elements.status.classList.remove('success');
-        this.elements.status.classList.add('error');
-        this.utility.setStatusMessage(this.elements.status, 'BLOCKED BY BLACKLIST', 5000, `Blacklisted: ${blocked.join(', ')}`);
+        this.report(
+            'error',
+            'BLOCKED BY BLACKLIST',
+            `Protected domain: ${[...new Set(blocked)].join(', ')}. Nothing was sent to CloudFlare. Purge a single URL or a cache tag instead.`,
+        );
         return false;
     }
 
@@ -466,19 +649,91 @@ class PopUp {
         }
     }
 
-    changeProfile(e) {
+    /**
+     * A change handler for the API token profile select. Every profile sees its
+     * own set of zones, so the zone list is rebuilt for the new token.
+     * @param {*} e event handler object
+     */
+    async changeProfile(e) {
         const select = e.target;
         this.settings.token = select.value;
+        await this.loadZones();
+    }
+
+    /**
+     * Shows the outcome of an action in the status area. Every purge ends here,
+     * whatever happened, so the popup never stays silent.
+     * @param {*} kind 'info', 'success' or 'error'
+     * @param {*} title the short headline
+     * @param {*} detail the explanation shown under the headline
+     */
+    report(kind, title, detail) {
+        clearTimeout(this.reportTimer);
+        const { status, statusDetail } = this.elements;
+        this.elements.purgeButton.className = '';
+        status.classList.remove('error', 'success', 'info');
+        statusDetail.classList.remove('error', 'success', 'info');
+        status.classList.add(kind);
+        statusDetail.classList.add(kind);
+        status.textContent = title;
+        statusDetail.textContent = detail || '';
+        if (kind === 'success') {
+            this.reportTimer = setTimeout(() => {
+                status.textContent = '';
+                statusDetail.textContent = '';
+            }, 8000);
+        }
+    }
+
+    /**
+     * Runs a purge and always reports how it ended: a confirmation on success, the
+     * reason on failure. Errors are kept on screen until the next action.
+     * @param {*} label what is being purged, for the messages
+     * @param {*} perform an async function returning { zoneId, rayId, what }
+     */
+    async runPurge(label, perform) {
+        this.report('info', 'PURGING...', `Purging ${label}`);
+        try {
+            this.requireCredentials();
+            const { rayId, what } = await perform();
+            if (!rayId) {
+                throw new Error('CloudFlare answered without a confirmation, so the purge cannot be confirmed.');
+            }
+
+            await this.onPurgeSuccess(what || label, rayId);
+        } catch (error) {
+            this.onPurgeFailure(error, label);
+        }
+    }
+
+    /**
+     * Refuses to start a purge when no API credentials are configured.
+     */
+    requireCredentials() {
+        const { token, email, key } = this.settings || {};
+        if (!token && !(email && key)) {
+            throw new Error('No CloudFlare API token is configured. Open the extension options and enter one.');
+        }
+    }
+
+    /**
+     * Reports a failed purge with the reason of the failure.
+     * @param {*} error the failure
+     * @param {*} label what was being purged
+     */
+    onPurgeFailure(error, label) {
+        console.log(error);
+        const reason = error && error.message ? error.message : String(error || 'Unknown error');
+        this.report('error', 'PURGE FAILED', `Nothing was purged for ${label}.\n${reason}`);
     }
 
     /**
      * A success event handler for the purge operation.
+     * @param {*} what what was purged
+     * @param {*} rayId the confirmation id returned by CloudFlare
      */
-    async onPurgeSuccess() {
-        this.elements.purgeButton.className = '';
-        this.elements.status.classList.remove('error');
-        this.elements.status.classList.add('success');
-        this.utility.setStatusMessage(this.elements.status, 'SUCCESS', 3000);
+    async onPurgeSuccess(what, rayId) {
+        this.report('success', 'SUCCESS', `Purged ${what}\nCloudFlare confirmation: ${rayId}`);
         if (this.elements.refresh.checked) {
             try {
                 const result = await this.refreshCountdown(this.elements.subStatus, 'Refreshing in: ', parseInt(this.settings.refresh, 10));
@@ -662,51 +917,80 @@ class PopUp {
         });
     }
 
-    getZoneId(domain) {
+    getZones() {
         return new Promise((resolve, reject) => {
             try {
                 chrome.runtime.sendMessage({
                     rSettings: this.settings,
-                    type: 'getZoneId',
-                    rDomain: domain,
-                },
-                response => {
-                    if (response.error) {
-                        const count = (domain.match(/\./g) || []).length;
-                        if (count > 1) {
-                            const fixedDomain = this.utility.fixDomain(domain);
-                            return resolve(this.getZoneId(fixedDomain));
-                        }
-
-                        return reject(new Error(response.error));
-                    }
-                    return resolve(response.result);
-                });
-            } catch (error) {                
-                return reject(new Error(error));
-            }
-        });
-    }
-
-    purgeCache(purgeSettings, zoneId) {
-        return new Promise((resolve, reject) => {
-            try {
-                chrome.runtime.sendMessage({
-                    rSettings: this.settings,
-                    type: 'purgeCache',
-                    rPurgeSettings: purgeSettings,
-                    rZoneId: zoneId,
+                    type: 'getZones',
                 }, response => {
                     if (response.error) {
-                        return reject(response.error);
+                        return reject(new Error(response.error));
                     }
 
-                    return resolve(response.result)
+                    return resolve(response.result);
                 });
             } catch (error) {
                 reject(new Error(error));
             }
         });
+    }
+
+    /**
+     * Sends a request to the background script and always settles: with the result,
+     * or with an Error saying why nothing came back (background asleep or crashed,
+     * no answer within 20 seconds, failure reported by the API).
+     * @param {*} message the request, without the settings
+     */
+    sendToBackground(message) {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error('The extension background did not answer within 20 seconds. Reload the extension and try again.'));
+            }, 20000);
+
+            try {
+                chrome.runtime.sendMessage({ rSettings: this.settings, ...message }, (response) => {
+                    clearTimeout(timer);
+                    const lastError = chrome.runtime.lastError;
+                    if (lastError) {
+                        reject(new Error(`The extension background is unreachable: ${lastError.message}`));
+                        return;
+                    }
+
+                    if (!response) {
+                        reject(new Error('The extension background returned no answer. Reload the extension and try again.'));
+                        return;
+                    }
+
+                    if (response.error) {
+                        reject(new Error(typeof response.error === 'string' ? response.error : 'The CloudFlare request failed.'));
+                        return;
+                    }
+
+                    resolve(response.result);
+                });
+            } catch (error) {
+                clearTimeout(timer);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+    }
+
+    async getZoneId(domain) {
+        try {
+            return await this.sendToBackground({ type: 'getZoneId', rDomain: domain });
+        } catch (error) {
+            // A sub-domain is retried with its parent domain, as the zone is usually the parent.
+            if ((domain.match(/\./g) || []).length > 1) {
+                return this.getZoneId(this.utility.fixDomain(domain));
+            }
+
+            throw error;
+        }
+    }
+
+    purgeCache(purgeSettings, zoneId) {
+        return this.sendToBackground({ type: 'purgeCache', rPurgeSettings: purgeSettings, rZoneId: zoneId });
     }
 }
 

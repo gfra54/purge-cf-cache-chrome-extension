@@ -265,13 +265,8 @@ class Options {
             }
         }
 
-        const hostnames = urls.map(item => new URL(item).hostname);
-        const blocked = this.utility.blockedByBlacklist(hostnames, this.blacklist, 'host');
-        if (blocked.length > 0) {
-            this.utility.setStatusMessage(this.elements.purgeStatus, `Blocked by the blacklist: ${[...new Set(blocked)].join(', ')}`, 5000);
-            return;
-        }
-
+        // Single URLs are purged even on a blacklisted domain: the blacklist only
+        // guards the purges that wipe the cache of a whole domain.
         try {
             const zoneId = await this.api.getZoneId(domain);
             try {

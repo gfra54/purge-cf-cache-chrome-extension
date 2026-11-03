@@ -8271,7 +8271,7 @@ export default class Utility {
     getDomain(url) {
         const uri = new URL(url);
         const domain = uri.hostname;
-        const regex = /^[a-zA-Z0-9]*\./i;
+        const regex = /^[^.]+\./;
         const count = (domain.match(/\./g) || []).length;
         let result = domain;
 
@@ -8288,8 +8288,8 @@ export default class Utility {
     }
 
     /**
-     * Turns the raw blacklist text of the options page into a list of entries.
-     * @param {*} value a newline or comma separated list of domains and cache tags
+     * Turns the raw blacklist text of the options page into a list of domains.
+     * @param {*} value a newline or comma separated list of domains
      */
     parseBlacklist(value) {
         if (Array.isArray(value)) {
@@ -8306,43 +8306,36 @@ export default class Utility {
     }
 
     /**
-     * Returns the purge targets that the user blacklisted, so a purge can be
-     * refused before any request reaches CloudFlare.
-     * @param {*} targets the hostnames or the cache tags about to be purged
+     * Returns the hostnames that the user blacklisted. The blacklist only guards
+     * the purges that wipe the cache of a whole domain, so purging a single URL
+     * or a cache tag is never refused because of it.
+     * @param {*} hostnames the hostnames whose entire cache is about to be purged
      * @param {*} blacklist the blacklist entries stored in the extension settings
-     * @param {*} kind 'host' to match domains and their sub-domains, 'tag' to match exactly
      */
-    blockedByBlacklist(targets, blacklist, kind) {
+    blockedByBlacklist(hostnames, blacklist) {
         const entries = this.parseBlacklist(blacklist);
         if (entries.length === 0) {
             return [];
         }
 
-        return targets.filter(
-            target => entries.some(entry => this.blacklistEntryMatches(entry, target, kind)),
+        return hostnames.filter(
+            hostname => entries.some(entry => this.blacklistEntryMatches(entry, hostname)),
         );
     }
 
     /**
-     * Matches a single blacklist entry against a purge target. Matching is case
-     * insensitive, even for cache tags, which CloudFlare itself treats as case
-     * sensitive: the blacklist is a safety net, so it errs towards blocking. A domain
-     * entry also covers its sub-domains, so 'example.com' blocks 'www.example.com'
-     * too, while a cache tag has no hierarchy and is matched whole.
+     * Matches a single blacklist entry against a hostname. Matching is case
+     * insensitive and an entry also covers its sub-domains, so 'example.com'
+     * protects 'www.example.com' too.
      * @param {*} entry a blacklist entry
-     * @param {*} target a hostname or a cache tag
-     * @param {*} kind 'host' or 'tag'
+     * @param {*} hostname a hostname
      */
-    blacklistEntryMatches(entry, target, kind) {
-        if (!entry || !target) {
+    blacklistEntryMatches(entry, hostname) {
+        if (!entry || !hostname) {
             return false;
         }
 
-        const value = target.trim().toLowerCase();
-        if (kind === 'tag') {
-            return entry.toLowerCase() === value;
-        }
-
+        const value = hostname.trim().toLowerCase();
         const domain = entry.toLowerCase().replace(/^\*\./, '');
         return value === domain || value.endsWith(`.${domain}`);
     }
@@ -8354,7 +8347,7 @@ export default class Utility {
     fixDomain(domain) {
         const count = (domain.match(/\./g) || []).length;
         if (count > 1) {
-            const regex = /^[a-zA-Z0-9]*\./i;
+            const regex = /^[^.]+\./;
             return domain.replace(domain.match(regex)[0], '');
         }
 

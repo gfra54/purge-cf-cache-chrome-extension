@@ -3,7 +3,7 @@
   "name": "CloudFlare Advanced Purge Plugin",
   "short_name": "CloudFlare Advanced Purge",
   "description": "This extension can purge the CloudFlare cache for the current page, for a domain or for a tag of your CloudFlare enabled website",
-  "version": "1.9.0",
+  "version": "1.10.2",
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
@@ -20,6 +20,7 @@
   },
   "permissions": [
    "activeTab",
+   "webRequest",
    "storage"
    ],
    "host_permissions": [

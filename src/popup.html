@@ -38,9 +38,11 @@
     <div class="group">
       <div class="group-title">
         <img class="logo" src="images/logo.png"/>
-        <h3>CloudFlare Purge</h3>
+        <h3>Advanced Purge Plugin</h3>
       </div>
+      <div id="cache-status"></div>
       <div class="group-body profiles">
+        <div class="field blacklist-warning" id="blacklist-warning"></div>
         <div class="field profiles-parent">
           <div class="left-part">
               Selected API token profile:
@@ -49,6 +51,21 @@
             <select id="select-profiles">
             </select>
           </div>
+        </div>
+        <div class="field zones-parent">
+          <div class="left-part">
+              Cloudflare zone:
+          </div>
+          <div class="right-part">
+            <select id="select-zones">
+            </select>
+          </div>
+        </div>
+        <div class="field zone-links">
+          <button data-zone-page="dns/records">DNS records</button>
+          <button data-zone-page="caching/cache-rules">Cache rules</button>
+          <button data-zone-page="caching/configuration">Purge cache (dashboard)</button>
+          <button data-zone-page="security/security-rules">Security rules</button>
         </div>
         <div class="field infoBtn-wrapper">
           <button id="infoBtn">
@@ -100,6 +117,7 @@
         <button id="optionsButton">Configure plugin</button>
         
         <div id="status" class="info"></div>
+        <div id="status-detail"></div>
         <div id="sub-status"></div>
         <div id="details"></div>
       </div>
