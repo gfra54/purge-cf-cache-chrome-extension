@@ -18,6 +18,10 @@ import Utility from './utility.js';
 import PurgeInfo from './info.js';
 import { describeStatus, storageKey } from './cacheStatusInfo.js';
 
+// The sites the extension needs to reach: the CloudFlare API and the pages whose
+// response headers carry the cache status.
+const HOST_ORIGINS = ['http://*/*', 'https://*/*'];
+
 class PopUp {
     constructor() {
         this.utility = new Utility();
@@ -43,6 +47,8 @@ class PopUp {
             status: document.querySelector('#status'),
             statusDetail: document.querySelector('#status-detail'),
             cacheStatus: document.querySelector('#cache-status'),
+            permissionNotice: document.querySelector('#permission-notice'),
+            grantPermission: document.querySelector('#grantPermission'),
             refresh: document.querySelector('#refresh'),
             refreshCheckbox: document.querySelector('.refresh-checkbox'),
             subStatus: document.querySelector('#sub-status'),
@@ -86,12 +92,61 @@ class PopUp {
         this.elements.selectProfiles.addEventListener('change', this.changeProfile.bind(this));
         this.elements.selectZones.addEventListener('change', this.changeZone.bind(this));
         this.elements.zoneLinks.addEventListener('click', this.zoneLinkClick.bind(this));
+        this.elements.grantPermission.addEventListener('click', this.grantPermissionClick.bind(this));
+        this.checkPermission();
         this.loadSettings();
         this.showCacheStatus();
     }
 
     static build() {
         return new PopUp();
+    }
+
+    /**
+     * Shows a notice with a button when the browser has not granted the extension
+     * access to websites. Firefox treats the host permissions of a manifest V3
+     * extension as optional: until the user grants them, requests to the
+     * CloudFlare API are blocked by CORS and response headers cannot be read.
+     */
+    async checkPermission() {
+        if (!chrome.permissions || !chrome.permissions.contains) {
+            return;
+        }
+
+        try {
+            const granted = await chrome.permissions.contains({ origins: HOST_ORIGINS });
+            if (granted) {
+                this.hideElement(this.elements.permissionNotice);
+            } else {
+                this.showElement(this.elements.permissionNotice);
+            }
+        } catch (error) {
+            console.log(error);
+        }
+    }
+
+    /**
+     * A click handler for the grant access button. The browser only accepts a
+     * permission request that is made from a user action, hence the button.
+     * @param {*} e event handler object
+     */
+    async grantPermissionClick(e) {
+        e.preventDefault();
+        try {
+            const granted = await chrome.permissions.request({ origins: HOST_ORIGINS });
+            if (!granted) {
+                this.report('error', 'ACCESS REFUSED', 'Without access to websites the extension cannot talk to CloudFlare.');
+                return;
+            }
+
+            this.hideElement(this.elements.permissionNotice);
+            this.report('success', 'ACCESS GRANTED', 'Reload the page to see its cache status.');
+            if (this.settingsSet) {
+                await this.loadZones();
+            }
+        } catch (error) {
+            this.report('error', 'ACCESS REQUEST FAILED', error.message);
+        }
     }
 
     /**
@@ -261,6 +316,7 @@ class PopUp {
         } catch (error) {
             this.setZonePlaceholder('Unable to load the zones');
             console.log(error.message);
+            this.report('error', 'ZONES NOT LOADED', error.message);
             return;
         }
 

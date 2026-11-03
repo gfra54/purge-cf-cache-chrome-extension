@@ -34,7 +34,8 @@ export default class CloudFlareApi {
         if (this.token) {
             return {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${this.token}`,
+                // A space or a line break pasted with the token makes CloudFlare refuse it.
+                Authorization: `Bearer ${String(this.token).trim()}`,
             };
         }
 
@@ -58,7 +59,7 @@ export default class CloudFlareApi {
         try {
             result = await fetch(url, options);
         } catch (error) {
-            throw new Error(`${action} failed: api.cloudflare.com is unreachable (${error.message}). Check the network connection, the VPN or an ad blocker.`);
+            throw new Error(`${action} failed: api.cloudflare.com is unreachable (${error.message}). Check the network connection, the VPN or an ad blocker, and that the browser granted this extension access to websites (the Grant access button of the popup).`);
         }
 
         let data = null;
@@ -73,8 +74,12 @@ export default class CloudFlareApi {
                 ? data.errors.map(error => `${error.code} ${error.message}`).join('; ')
                 : '';
             let hint = '';
-            if (result.status === 401 || result.status === 403) {
-                hint = ' The API token is invalid, expired or lacks a permission (needs Zone: Zone Read and Zone: Cache Purge).';
+            const unknownToken = data && Array.isArray(data.errors)
+                && data.errors.some(error => error.code === 9109 || error.code === 6003 || error.code === 6111);
+            if (unknownToken) {
+                hint = ' CloudFlare does not recognise this API token: it was mistyped, revoked or has expired. Create a new one in the CloudFlare dashboard (My Profile > API Tokens) and paste it again in the extension options.';
+            } else if (result.status === 401 || result.status === 403) {
+                hint = ' The API token is invalid, expired or lacks a permission: it needs Zone > Zone > Read and Zone > Cache Purge > Purge, on the zones you want to purge (or on all zones).';
             } else if (result.status === 429) {
                 hint = ' CloudFlare rate limit reached, wait a moment before purging again.';
             }
@@ -115,13 +120,7 @@ export default class CloudFlareApi {
             const url = `${this.cloudFlareApiUrl}zones?status=active&per_page=50&page=${page}&order=name&direction=asc`;
             // The page count is only known once the previous page came back.
             // eslint-disable-next-line no-await-in-loop
-            const result = await fetch(url, { method: 'GET', headers });
-            if (!result || !result.ok) {
-                throw new Error('Unable to get the zone list.');
-            }
-
-            // eslint-disable-next-line no-await-in-loop
-            const data = await result.json();
+            const data = await this.call(url, { method: 'GET', headers }, 'Loading the zone list');
             zones.push(...data.result);
             totalPages = (data.result_info && data.result_info.total_pages) || 1;
             page += 1;

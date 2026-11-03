@@ -155,3 +155,14 @@ select {
 .blacklist-warning span {
     font-size: 12px;
 }
+#permission-notice {
+    padding: 10px 16px;
+    font-size: 12px;
+    line-height: 1.4;
+    background-color: #af661a;
+    color: #ffffff;
+}
+
+#permission-notice button {
+    margin-top: 8px;
+}
