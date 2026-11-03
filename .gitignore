@@ -5,3 +5,5 @@ node_modules/
 # Unpacked builds produced by testMode.ps1 and archives produced by package.ps1
 build/
 *.zip
+# AMO API credentials used by sign.sh
+.env
